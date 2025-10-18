@@ -1,0 +1,189 @@
+/* هذا هو ملف JavaScript الذي أرسلته، لم يطرأ عليه تغيير */
+const pages = {
+    index: document.getElementById('page-index'),
+    form: document.getElementById('page-form'),
+    result: document.getElementById('page-result')
+};
+let currentPage = 'index';
+let html5QrCode = null; // المتغير الذي سيحمل كائن قارئ الـ QR
+
+// ----------------------------------------------------
+// وظائف واجهة المسح
+// ----------------------------------------------------
+function showScanner() {
+    document.getElementById('scannerOverlay').style.display = 'flex';
+}
+
+function hideScanner() {
+    // إيقاف القارئ عند الإغلاق لمنع استمرار عمل الكاميرا
+    if (html5QrCode && html5QrCode.isScanning) {
+        html5QrCode.stop().then(() => {
+            console.log("QR scanning stopped.");
+        }).catch(err => {
+            console.error("Error stopping QR scanning:", err);
+        });
+    }
+    document.getElementById('scannerOverlay').style.display = 'none';
+}
+
+// ****** الوظيفة المعدلة لربط الباركود بالنموذج ******
+function onScanSuccess(decodedText, decodedResult) {
+    alert(`✅ تم قراءة الرمز بنجاح! \n\nسيتم الآن نقل بيانات الدواء (${decodedText}) إلى نموذج الإدخال.`);
+    
+    // 1. ربط النص المقروء بحقل اسم الدواء في النموذج
+    document.getElementById('drugName').value = decodedText.trim();
+    
+    // 2. إغلاق واجهة المسح
+    hideScanner(); 
+    
+    // 3. النقل إلى صفحة النموذج لإكمال باقي البيانات ثم الضغط على 'النتيجة'
+    changePage('form'); 
+}
+// **************************************************
+
+function startQRScan() {
+    const qrCodeRegionId = "qr-reader-content";
+    
+    // إزالة المحتوى النصي القديم لتمكين بث الكاميرا
+    document.getElementById(qrCodeRegionId).innerHTML = ''; 
+    
+    // تهيئة القارئ
+    html5QrCode = new Html5Qrcode(qrCodeRegionId);
+    
+    // بدء المسح
+    html5QrCode.start(
+      { facingMode: "environment" }, // استخدام الكاميرا الخلفية
+      { 
+        fps: 10,    // معدل الإطارات في الثانية
+        qrbox: 250, // حجم مربع المسح
+        disableFlip: true // قد يساعد في بعض الأجهزة
+      },
+      onScanSuccess,
+      (errorMessage) => {
+        // لا تظهر رسائل خطأ صغيرة للمستخدم
+      }
+    ).catch((err) => {
+        // رسالة الخطأ هذه تظهر إذا فشل تماماً
+        document.getElementById(qrCodeRegionId).innerHTML = '<p style="color:red;">⚠️ **خطأ في الكاميرا:** لم نتمكن من الوصول إليها. (جرب تحديث الصفحة والمحاولة مجدداً).</p>';
+        alert("⚠️ فشل تفعيل الكاميرا. تأكد من إعطاء الصلاحيات وفتح الصفحة في 'Debug View'.");
+        console.error("Failed to start QR scan.", err);
+    });
+}
+
+// ****** الوظيفة المعدلة لالتقاط صورة للوصفة ******
+function startOCRScan() {
+    alert("⚠️ وظيفة تحليل الوصفات (OCR) تتطلب معالجة صور. سنقوم بفتح الكاميرا لالتقاط صورة للوصفة.");
+    
+    // فتح واجهة التقاط الصورة مباشرةً
+    const tempInput = document.createElement('input');
+    tempInput.type = 'file';
+    tempInput.accept = 'image/*';
+    tempInput.capture = 'environment'; // تفعيل الكاميرا الخلفية مباشرةً
+    
+    tempInput.onchange = (e) => {
+        if(e.target.files && e.target.files[0]){
+            alert("✅ تم التقاط الصورة. (التحليل النصي يحتاج خادم).");
+        }
+    };
+    tempInput.click();
+    hideScanner();
+}
+// **************************************************
+
+// ----------------------------------------------------
+// وظائف تبديل الصفحات وحساب الجرعات (بدون تغيير)
+// ----------------------------------------------------
+function changePage(targetPage, loadResult = false) {
+    Object.keys(pages).forEach(pageKey => {
+        pages[pageKey].style.display = (pageKey === targetPage) ? 'flex' : 'none';
+        pages[pageKey].style.overflowY = (pageKey === 'form' || pageKey === 'result') ? 'auto' : 'hidden';
+    });
+    currentPage = targetPage;
+    
+    if (targetPage === 'result' && loadResult) {
+        renderResultPage();
+    }
+    // إعادة تشغيل الرسوم المتحركة
+    if (targetPage === 'index') {
+        document.querySelector('#page-index h1').style.animation = 'none';
+        document.querySelector('#page-index .buttons').style.animation = 'none';
+        void document.querySelector('#page-index h1').offsetWidth;
+        document.querySelector('#page-index h1').style.animation = 'fadeIn 1s ease-out forwards 0.5s';
+        document.querySelector('#page-index .buttons').style.animation = 'fadeIn 1s ease-out forwards 1.5s';
+    }
+}
+
+function showResult(){
+    const caseName = document.getElementById('caseName').value;
+    const age = parseFloat(document.getElementById('age').value);
+    const weight = parseFloat(document.getElementById('weight').value);
+    const drugName = document.getElementById('drugName').value.trim().toLowerCase();
+    const form = document.getElementById('form').value;
+    if(!caseName || isNaN(age) || isNaN(weight) || !drugName || !form){
+        alert("⚠️ من فضلك أكمل كل الحقول بالبيانات الصحيحة قبل المتابعة.");
+        return;
+    }
+    const userData = { caseName, age, weight, drugName, form };
+    localStorage.setItem('pharmaData', JSON.stringify(userData));
+    changePage('result', true);
+}
+
+function renderResultPage(){
+    const data = JSON.parse(localStorage.getItem('pharmaData'));
+    if(!data){
+        document.querySelector('#page-result .welcome-header').textContent = "خطأ: لا توجد بيانات.";
+        return;
+    }
+    const { caseName, age, weight, drugName, form } = data;
+    const drugs = {
+        paracetamol: { name: "Paracetamol", form: { "قرص (Tablet)": { dose: "10–15 ملغ/كغ كل 4–6 ساعات", max: "حتى 60 ملغ/كغ يومياً" }, "شراب/معلق (Syrup/Suspension)": { dose: "10–15 ملغ/كغ كل 4–6 ساعات", max: "حتى 60 ملغ/كغ يومياً" } }, warning: "لا يُستخدم في حالة أمراض الكبد أو الإفراط في الكحول." },
+        ibuprofen: { name: "Ibuprofen", form: { "قرص (Tablet)": { dose: "5–10 ملغ/كغ كل 6–8 ساعات", max: "حتى 40 ملغ/كغ يومياً" }, "شراب/معلق (Syrup/Suspension)": { dose: "5–10 ملغ/كغ كل 6–8 ساعات", max: "حتى 40 ملغ/كغ يومياً" } }, warning: "يُتجنب مع قرحة المعدة أو مشاكل الكلى." },
+        amoxicillin: { name: "Amoxicillin", form: { "كبسولة (Capsule)": { dose: "20–40 ملغ/كغ يومياً مقسمة على 3 جرعات", max: "حتى 3 غرام يومياً" }, "شراب/معلق (Syrup/Suspension)": { dose: "20–40 ملغ/كغ يومياً مقسمة على 3 جرعات", max: "حتى 3 غرام يومياً" } }, warning: "تحسس محتمل من البنسلين." },
+        cetirizine: { name: "Cetirizine", form: { "قرص (Tablet)": { dose: "10 ملغ مرة يومياً للبالغين", max: "لا تتجاوز 10 ملغ يومياً" }, "شراب/معلق (Syrup/Suspension)": { dose: "5 ملغ للأطفال دون 6 سنوات", max: "10 ملغ يومياً" } }, warning: "قد يسبب نعاساً بسيطاً." },
+        metformin: { name: "Metformin", form: { "قرص (Tablet)": { dose: "500 ملغ مرتين يومياً بعد الأكل", max: "حتى 2000 ملغ يومياً" } }, warning: "يُمنع في حالات فشل الكلى أو الكبد." }
+    };
+    const selectedDrugKey = Object.keys(drugs).find(d => drugName.includes(d)) || "paracetamol";
+    const drugInfo = drugs[selectedDrugKey];
+    const drugForm = drugInfo.form[form] || Object.values(drugInfo.form)[0];
+    let doseText = drugForm.dose;
+    let maxDoseText = drugForm.max;
+    if (doseText.includes("ملغ/كغ")) {
+        const match = doseText.match(/(\d+)[–\-](\d+)/);
+        if (match) {
+            const min = parseInt(match[1]);
+            const max = parseInt(match[2]);
+            const minDose = (min * weight).toFixed(0);
+            const maxDoseCalc = (max * weight).toFixed(0);
+            doseText = `${minDose}–${maxDoseCalc} ملغ لكل جرعة (${drugForm.dose})`;
+        }
+    } else if (age < 12 && !doseText.includes("للأطفال")) {
+        doseText = drugForm.dose + " (يرجى مراجعة الصيدلي للجرعة المناسبة للأطفال).";
+    }
+    document.querySelector('#page-result .welcome-header').textContent = `أهلاً بك - ${caseName}`;
+    document.querySelector('#page-result .drug-name').textContent = `${drugInfo.name} (${form})`;
+    const list = document.querySelector('#page-result ul');
+    list.innerHTML = `
+        <li>&bull; العمر: <span>${age} سنة</span> - الوزن: <span>${weight} كغ</span></li>
+        <li>&bull; الجرعة المقترحة:<div>${doseText}</div></li>
+        <li>&bull; الحد الأقصى اليومي:<div>${maxDoseText}</div></li>
+        <li>&bull; التوقيت/ملاحظات:<div>يُفضل تناول الدواء بعد الأكل.</div></li>
+        <li>
+            <div class="warning"><span class="warning-icon">&#9888;</span> تنبيه</div>
+            &bull; موانع الاستخدام: <div class="restriction">${drugInfo.warning}</div>
+        </li>
+    `;
+}
+function saveData(){
+    alert("⚠️ وظيفة الحفظ ستُفعّل لاحقاً (تحتاج قاعدة بيانات).");
+}
+
+window.onload = function() {
+    // التأكد من أن جميع صفحات الـ HTML موجودة
+    if (pages.index && pages.form && pages.result) {
+        changePage('index');
+    } else {
+        console.error("Pages elements not found. Check your HTML IDs.");
+        // إذا فشل العثور على الصفحات، افتح الواجهة الأولى يدوياً
+        document.getElementById('page-index').style.display = 'flex';
+    }
+};

@@ -1,0 +1,31 @@
+const CACHE_NAME = 'pharma-tech-v1';
+const urlsToCache = [
+  '/',
+  '/index.html',
+  '/style.css',
+  '/script.js',
+  '/manifest.json',
+  // يجب أن تقوم بتوفير هذه الصور في نفس المجلد
+  '/icon-192.png', 
+  '/icon-512.png',
+  // صورة الخلفية، وهي مهمة جداً لضمان عمل التطبيق بدون إنترنت
+  'https://i.postimg.cc/d7Jty8s1/IMG-20251016-WA0017.jpg' 
+];
+
+self.addEventListener('install', event => {
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then(cache => {
+        return cache.addAll(urlsToCache);
+      })
+  );
+});
+
+self.addEventListener('fetch', event => {
+  event.respondWith(
+    caches.match(event.request)
+      .then(response => {
+        return response || fetch(event.request);
+      })
+  );
+});
