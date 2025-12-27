@@ -1,0 +1,311 @@
+
+const GEMINI_API_KEY = "AIzaSyAWed2TPgkRr7HYw_h1XP7bkXfBcfY5Ymk"; // مفتاح الذكاء الاصطناعي
+const firebaseConfig = {
+    apiKey: "AIzaSyD9RK5RW_iU00BDReNtv1yE-EJZX8CFxKk",
+    authDomain: "pharmatec-app-fc845.firebaseapp.com",
+    projectId: "pharmatec-app-fc845",
+    storageBucket: "pharmatec-app-fc845.firebasestorage.app",
+    messagingSenderId: "818569012835",
+    appId: "1:818569012835:web:fc165b4b5141171feb3a56"
+};
+
+// تهيئة Firebase للشات
+if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const myID = localStorage.getItem('user_id') || 'User_' + Math.floor(Math.random() * 9999);
+localStorage.setItem('user_id', myID);
+
+// التأكد من أن قاعدة البيانات موجودة (تم تحميل drugs.js)
+if (typeof drugDB === 'undefined') {
+    console.error("خطأ: لم يتم تحميل ملف drugs.js");
+    alert("تنبيه: ملف drugs.js غير موجود! البحث لن يعمل.");
+    var drugDB = []; 
+}
+
+// ---------------- 1. التنقل بين الصفحات ----------------
+function changePage(p) {
+    // إخفاء كل الصفحات
+    document.querySelectorAll('[id^="page-"]').forEach(el => el.style.display = 'none');
+    
+    // إظهار الصفحة المطلوبة
+    const targetPage = document.getElementById('page-' + p);
+    if (targetPage) {
+        targetPage.style.display = 'flex';
+    }
+
+    // إعدادات خاصة لبعض الصفحات
+    if (p === 'chat') {
+        loadChat();
+    }
+}
+
+// ---------------- 2. دالة البحث عن دواء ----------------
+function searchDrug(query) {
+    const suggestionsBox = document.getElementById('suggestions-box');
+    suggestionsBox.innerHTML = '';
+    
+    if (!query || query.length < 2) {
+        suggestionsBox.style.display = 'none';
+        return; 
+    }
+
+    const lowerQuery = query.toLowerCase();
+    
+    // البحث في الاسم التجاري، العربي، العلمي، والباركود
+    const matches = drugDB.filter(d => 
+        (d.trade_name && d.trade_name.toLowerCase().includes(lowerQuery)) || 
+        (d.ar_name && d.ar_name.includes(query)) || 
+        (d.barcode && d.barcode === query)
+    );
+
+    if (matches.length > 0) {
+        suggestionsBox.style.display = 'block';
+        // عرض أول 10 نتائج فقط لتسريع الأداء
+        matches.slice(0, 10).forEach(drug => {
+            const div = document.createElement('div');
+            div.className = 'suggestion-item';
+            div.innerHTML = `<strong>${drug.trade_name}</strong><br><small>${drug.ar_name}</small>`;
+            div.onclick = () => selectDrug(drug);
+            suggestionsBox.appendChild(div);
+        });
+    } else {
+        suggestionsBox.style.display = 'none';
+    }
+}
+
+function selectDrug(drug) {
+    document.getElementById('drugName').value = drug.trade_name;
+    // تخزين كائن الدواء كاملاً كـ نص JSON في الحقل المخفي
+    document.getElementById('selectedDrugId').value = JSON.stringify(drug);
+    document.getElementById('suggestions-box').style.display = 'none';
+}
+
+// ---------------- 3. الحساب والعرض ----------------
+function calculateAndShow() {
+    const drugInput = document.getElementById('drugName').value;
+    const weight = parseFloat(document.getElementById('weight').value);
+    const selectedDrugData = document.getElementById('selectedDrugId').value;
+
+    if (!weight || weight <= 0) {
+        alert("الرجاء إدخال الوزن بشكل صحيح لحساب الجرعة.");
+        return;
+    }
+
+    let drug = null;
+
+    // محاولة استرجاع الدواء المختار
+    if (selectedDrugData) {
+        try {
+            drug = JSON.parse(selectedDrugData);
+        } catch (e) {
+            console.error("خطأ في قراءة بيانات الدواء", e);
+        }
+    } 
+    
+    // إذا لم يتم الاختيار من القائمة، نحاول البحث بالاسم المدخل يدوياً
+    if (!drug) {
+        drug = drugDB.find(d => 
+            d.trade_name.toLowerCase() === drugInput.toLowerCase() || 
+            d.ar_name === drugInput
+        );
+    }
+
+    if (drug) {
+        renderDrugResult(drug, weight);
+    } else {
+        renderGenericResult(drugInput, weight);
+    }
+    
+    changePage('result');
+}
+
+function renderDrugResult(drug, weight) {
+    document.getElementById('resDrugName').innerHTML = `${drug.trade_name}<br><span style="font-size:0.7em; color:#666;">${drug.ar_name}</span>`;
+    
+    let doseInfo = "";
+    
+    // المعادلة الحسابية للشراب: (الوزن * الجرعة لكل كجم) / تركيز الدواء
+    if (drug.type === 'syrup' && drug.math && drug.math.dose_mg_kg > 0 && drug.math.conc_mg_ml > 0) {
+        const doseML = (weight * drug.math.dose_mg_kg) / drug.math.conc_mg_ml;
+        doseInfo = `🧪 الجرعة المقترحة: <strong>${doseML.toFixed(1)} مل</strong> في المرة الواحدة`;
+    } 
+    // للأقراص والكبسولات
+    else if (drug.type === 'tablet' || drug.type === 'capsule') {
+        doseInfo = `💊 الجرعة المعتادة: قرص واحد (أو حسب وصفة الطبيب)`;
+    } 
+    // للباقي (مراهم، حقن...)
+    else {
+        doseInfo = `⚠️ طريقة الاستخدام: ${drug.usage}`;
+    }
+
+    // تجهيز التكرار والتحذير
+    const frequency = (drug.math && drug.math.max_freq_day) ? `${drug.math.max_freq_day} مرات يومياً كحد أقصى` : 'حسب الحاجة';
+    const warningText = drug.warning ? drug.warning : "لا توجد تحذيرات خاصة.";
+
+    document.getElementById('result-list').innerHTML = `
+        <li><strong>الاستخدام:</strong> ${drug.usage}</li>
+        <li>${doseInfo}</li>
+        <li><strong>التكرار:</strong> ${frequency}</li>
+        <li style="color:#d9534f; font-weight:bold;"><strong>تنبيه:</strong> ${warningText}</li>
+    `;
+}
+
+function renderGenericResult(name, weight) {
+    // حساب تقديري بسيط جداً (للطوارئ فقط)
+    const dose = name.toLowerCase().includes('para') ? weight * 15 : weight * 10;
+    
+    document.getElementById('resDrugName').innerText = name + " (غير موجود بالقاعدة)";
+    document.getElementById('result-list').innerHTML = `
+        <li>تنبيه: هذا الدواء غير مسجل في قاعدة البيانات بدقة.</li>
+        <li>الجرعة التقديرية (بافتراض أنه خافض حرارة): ${dose} ملغ تقريباً.</li>
+        <li>يرجى مراجعة النشرة الداخلية للدواء أو سؤال الطبيب للحصول على الجرعة الدقيقة.</li>
+    `;
+}
+
+// ---------------- 4. الماسح الضوئي (QR) والذكاء الاصطناعي (AI) ----------------
+function showScanner() { 
+    document.getElementById('scannerOverlay').style.display = 'flex'; 
+}
+
+function hideScanner() { 
+    document.getElementById('scannerOverlay').style.display = 'none'; 
+    // إيقاف الكاميرا إذا كانت تعمل (للحفاظ على البطارية)
+    try {
+        if(window.html5QrCode) {
+            window.html5QrCode.stop().catch(err => {});
+        }
+    } catch(e) {}
+}
+
+function triggerAIFile() { 
+    document.getElementById('aiInput').click(); 
+}
+
+function startQRScan() {
+    // التأكد من عدم وجود مسح جاري
+    const readerElement = document.getElementById("qr-reader-content");
+    readerElement.innerHTML = ""; 
+
+    const html5QrCode = new Html5Qrcode("qr-reader-content");
+    window.html5QrCode = html5QrCode; // تخزينه للتمكن من إيقافه لاحقاً
+
+    const config = { fps: 10, qrbox: 250 };
+    
+    html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => {
+        // عند النجاح
+        html5QrCode.stop().then(() => {
+            hideScanner();
+            
+            // البحث بالباركود في قاعدة البيانات
+            const drug = drugDB.find(d => d.barcode === decodedText);
+            
+            if (drug) {
+                selectDrug(drug);
+                alert(`✅ تم التعرف على: ${drug.ar_name}`);
+            } else {
+                document.getElementById('drugName').value = decodedText;
+                alert("⚠️ الباركود غير مسجل في القاعدة، يمكنك إدخال الاسم يدوياً.");
+            }
+        });
+    }).catch(err => {
+        console.log(err);
+        alert("يرجى السماح للكاميرا بالعمل أو التأكد من الإضاءة.");
+    });
+}
+
+async function analyzePrescriptionAI(input) {
+    const file = input.files[0];
+    if (!file) return;
+    
+    hideScanner();
+    document.getElementById('loading-overlay').style.display = 'flex';
+
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    
+    reader.onload = async () => {
+        const base64 = reader.result.split(',')[1]; // الحصول على بيانات الصورة فقط
+        
+        // تجهيز الطلب للذكاء الاصطناعي
+        const prompt = `أنت صيدلي خبير. استخرج اسم الدواء فقط من الصورة بدقة عالية باللغة الإنجليزية أو العربية.
+        اكتب الاسم في هذا التنسيق بالضبط: <div class="ai-item"><span class="ai-key">الاسم:</span><span class="ai-val drug-detect">[الاسم هنا]</span></div>`;
+
+        try {
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ 
+                    contents: [{ 
+                        parts: [
+                            { text: prompt }, 
+                            { inlineData: { mimeType: file.type, data: base64 } } 
+                        ] 
+                    }] 
+                })
+            });
+            
+            const data = await res.json();
+            
+            if (data.candidates && data.candidates.length > 0) {
+                const text = data.candidates[0].content.parts[0].text.replace(/```html|```/g, "");
+                
+                document.getElementById('ai-content').innerHTML = text;
+                document.getElementById('ai-result-box').style.display = 'block';
+                
+                // محاولة وضع الاسم تلقائياً في حقل البحث
+                setTimeout(() => {
+                    const detectedElement = document.querySelector('.drug-detect');
+                    if (detectedElement) {
+                        const detectedName = detectedElement.innerText.trim();
+                        document.getElementById('drugName').value = detectedName;
+                        searchDrug(detectedName); // بحث تلقائي عن الاسم المستخرج
+                    }
+                }, 500);
+            } else {
+                alert("لم أتمكن من قراءة الصورة بوضوح. حاول مرة أخرى بصورة أوضح.");
+            }
+
+        } catch (e) { 
+            console.error(e);
+            alert("حدث خطأ في الاتصال بالذكاء الاصطناعي. تأكد من الإنترنت."); 
+        }
+        
+        document.getElementById('loading-overlay').style.display = 'none';
+    };
+}
+
+// ---------------- 5. الشات ----------------
+function loadChat() {
+    // الاستماع للرسائل الجديدة (آخر 50 رسالة)
+    db.collection("public_chat").orderBy("timestamp", "asc").limitToLast(50).onSnapshot(snap => {
+        const box = document.getElementById('chatBody');
+        box.innerHTML = '';
+        snap.forEach(doc => {
+            const m = doc.data();
+            const isMe = m.senderID === myID;
+            box.innerHTML += `<div class="message ${isMe ? 'me' : 'other'}">${m.text}</div>`;
+        });
+        // النزول لآخر رسالة تلقائياً
+        box.scrollTop = box.scrollHeight;
+    });
+}
+
+function sendMessage() {
+    const inp = document.getElementById('chatInput');
+    const text = inp.value.trim();
+    
+    if (text) {
+        db.collection("public_chat").add({ 
+            text: text, 
+            senderID: myID, 
+            timestamp: firebase.firestore.FieldValue.serverTimestamp() 
+        }).catch(err => {
+            console.error("Error sending message: ", err);
+        });
+        inp.value = '';
+    }
+}
+
+// تشغيل التطبيق عند الفتح (توجيه للصفحة الرئيسية)
+window.onload = () => changePage('index');
+```

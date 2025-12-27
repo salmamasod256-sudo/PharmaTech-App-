@@ -1,0 +1,131 @@
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <title>Pharma Tech App</title>
+    
+    <!-- 1. ربط ملف التصميم (الألوان والشكل) -->
+    <link rel="stylesheet" href="style.css">
+    
+    <!-- الخطوط -->
+    <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@700&display=swap" rel="stylesheet">
+    
+    <!-- المكتبات الخارجية (الكاميرا وقاعدة البيانات) -->
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+</head>
+<body>
+
+    <!-- هذا الجزء اللي أنت نسخته (شاشات التطبيق) -->
+    <div id="loading-overlay">
+        <div class="loader"></div>
+        <p>جارٍ استشارة الذكاء الاصطناعي... 🤖</p>
+    </div>
+
+    <div class="scanner-overlay" id="scannerOverlay">
+        <div class="scanner-content">
+            <div id="qr-reader-content">
+                <p style="color:white; margin-bottom:10px;"><strong>الماسح الذكي</strong></p>
+            </div>
+            <p style="margin: 15px 0; color: white;">اختر الطريقة:</p>
+            <button class="scanner-btn" onclick="startQRScan()">📷 مسح باركود (QR)</button>
+            <button class="scanner-btn" onclick="triggerAIFile()">🧠 تحليل وصفة (AI)</button>
+            <input type="file" id="aiInput" accept="image/*" style="display: none;" onchange="analyzePrescriptionAI(this)">
+            <button class="scanner-btn" style="background: #8b4513; margin-top: 20px;" onclick="hideScanner()">إغلاق ✖</button>
+        </div>
+    </div>
+
+    <div id="page-index">
+        <div class="content">
+            <h1>مرحبًا بك في <span>Pharma Tech</span></h1>
+            <div class="buttons">
+                <button onclick="changePage('form')">دخول إلى التطبيق</button>
+                <button class="chat" onclick="changePage('chat')">دردشة عامة (Live)</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="page-chat">
+        <div class="chat-header-full">
+            <button onclick="changePage('index')">⬅ خروج</button>
+            <span>ملتقى الصيادلة</span>
+            <div style="width:30px"></div>
+        </div>
+        <div class="chat-body-full" id="chatBody"></div>
+        <div class="chat-footer-full">
+            <button class="icon-btn" onclick="document.getElementById('chatImgInput').click()">📷</button>
+            <input type="file" id="chatImgInput" accept="image/*" hidden>
+            <input type="text" id="chatInput" placeholder="اكتب رسالة...">
+            <button class="send-btn" onclick="sendMessage()">➤</button>
+        </div>
+    </div>
+
+    <div id="page-form">
+        <div class="form-top-nav">
+            <h2>Pharma Tech</h2>
+            <button onclick="changePage('index')">✖</button>
+        </div>
+        <div id="ai-result-box">
+            <h3>📋 نتيجة التحليل الذكي:</h3>
+            <div id="ai-content"></div>
+            <button onclick="this.parentElement.style.display='none'" style="background:#555; color:white; border:none; padding:5px 10px; margin-top:10px; border-radius:5px;">إخفاء</button>
+        </div>
+        
+        <!-- تعديل بسيط هنا لإضافة الاقتراحات -->
+        <form onsubmit="calculateAndShow(); return false;" style="position: relative;">
+            <label>اسم الحالة:</label>
+            <input type="text" id="caseName" placeholder="مثلاً: نزلة برد..." required>
+            <div class="row">
+                <div class="col">
+                    <label>العمر:</label>
+                    <input type="number" id="age" required>
+                </div>
+                <div class="col">
+                    <label>الوزن (كغ):</label>
+                    <input type="number" id="weight" required>
+                </div>
+            </div>
+            <label>اسم الدواء:</label>
+            <div style="position: relative;">
+                <input type="text" id="drugName" placeholder="اكتب الاسم أو استخدم الكاميرا" oninput="searchDrug(this.value)" autocomplete="off" required>
+                <div id="suggestions-box"></div>
+            </div>
+            
+            <!-- حقل مخفي لتخزين الدواء المختار -->
+            <input type="hidden" id="selectedDrugId">
+
+            <label>الشكل الصيدلاني:</label>
+            <select id="form">
+                <option value="" disabled selected>اختر شكل الدواء (اختياري)</option>
+                <option value="قرص (Tablet)">قرص (Tablet)</option>
+                <option value="شراب (Syrup)">شراب (Syrup)</option>
+                <option value="حقن (Injection)">حقن (Injection)</option>
+            </select>
+            <button type="submit" class="submit">حساب الجرعة</button>
+        </form>
+        <div class="camera-btn" onclick="showScanner()">
+            <svg class="camera-icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 6c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+        </div>
+    </div>
+
+    <div id="page-result">
+        <div class="result-card">
+            <div class="welcome-header">النتيجة النهائية</div>
+            <div class="drug-name-display" id="resDrugName"></div>
+            <ul id="result-list"></ul>
+        </div>
+        <div class="action-buttons">
+            <button class="action-btn" onclick="changePage('index')">الرئيسية</button>
+            <button class="action-btn" onclick="changePage('form')">إعادة</button>
+        </div>
+    </div>
+
+    <!-- 2. ربط ملفات البرمجة وقاعدة البيانات (مهم جداً) -->
+    <script src="drugs.js"></script>
+    <script src="script.js"></script>
+
+</body>
+</html>
